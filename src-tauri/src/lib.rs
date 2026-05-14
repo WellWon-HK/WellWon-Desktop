@@ -1,7 +1,7 @@
 // WellWon Desktop shell.
 //
 // Default = full-mode window: 1280x800, no decorations, navigates
-// to wellwon.hk/chat (or localhost:3005/chat in dev) and injects
+// to wellwon.app/chat (or localhost:3005/chat in dev) and injects
 // `data-platform="desktop"` + `data-mode="full"` plus an empty
 // `<style id="ww-desktop-overrides">` placeholder for CSS overrides.
 //
@@ -148,12 +148,12 @@ fn center_on_cursor_monitor(window: &WebviewWindow, target_w: u32, target_h: u32
 }
 
 /// Pick the right base URL for the morph target. Dev = localhost
-/// :3005 (the web app's dev port). Prod = wellwon.hk.
+/// :3005 (the web app's dev port). Prod = wellwon.app.
 fn full_mode_url() -> &'static str {
     if cfg!(debug_assertions) {
         "http://localhost:3005/chat"
     } else {
-        "https://wellwon.hk/chat"
+        "https://wellwon.app/chat"
     }
 }
 
@@ -175,7 +175,7 @@ const DESKTOP_INJECT_JS: &str = r#"
     /* Rounded window corners.
        `border-radius + overflow: hidden` on html/body clips normal-
        flow descendants — good for the desktop layout. But on the
-       mobile breakpoint (< 768px) wellwon.hk introduces a few
+       mobile breakpoint (< 768px) wellwon.app introduces a few
        `position: fixed` elements (MobileChatNav, drop overlay,
        PWA prompt) whose painting escapes that clip; the result is
        sharp window corners as soon as you narrow the window.
@@ -365,13 +365,17 @@ const DESKTOP_INJECT_JS: &str = r#"
         function() { safeWindow(function(w) { return w.minimize(); }); }
       );
 
-      /* Close — diagonal X. */
+      /* Close — diagonal X. Quits the app (calls window.close() which,
+         with Tauri 2 + a single window, terminates the process). User
+         can re-launch from Dock or Applications; hotkey ⌥+Space is
+         only active while the app is running. For "hide and keep
+         hotkey alive" the minimise button is the right affordance. */
       var closeBtn = makeBtn(
         'ww-close',
-        'Скрыть',
-        'Скрыть окно (вернуть через Option+Space)',
+        'Закрыть',
+        'Закрыть приложение (⌘Q)',
         ['M6 6l12 12', 'M18 6L6 18'],
-        function() { safeWindow(function(w) { return w.hide(); }); }
+        function() { safeWindow(function(w) { return w.close(); }); }
       );
 
       wrap.appendChild(reloadBtn);
@@ -387,7 +391,7 @@ const DESKTOP_INJECT_JS: &str = r#"
      grace period prevents flicker if the cursor slips out briefly
      during a click. Implemented in JS — pure CSS :hover would need
      a wrapper with pointer-events:auto and that would block clicks
-     to wellwon.hk underneath. */
+     to wellwon.app underneath. */
   function wireHoverShow() {
     if (window.__wwHoverWired) return;
     window.__wwHoverWired = true;
@@ -473,7 +477,7 @@ const DESKTOP_INJECT_JS: &str = r#"
 "#;
 
 /// Configure the window for full app mode: geometry, decorations,
-/// navigate to wellwon.hk/chat, schedule the desktop-overrides
+/// navigate to wellwon.app/chat, schedule the desktop-overrides
 /// injection. Kept for the (currently muted) compact↔full morph
 /// path — on startup we build the window with the correct config
 /// + `initialization_script` directly, so this is not called from
@@ -506,7 +510,7 @@ fn morph_to_full(app: AppHandle) -> Result<(), String> {
 
     // Drop always-on-top + enable resize/decorations BEFORE growing.
     // set_decorations may silently noop while macOSPrivateApi +
-    // transparent are active — accept it; the navigated wellwon.hk
+    // transparent are active — accept it; the navigated wellwon.app
     // page provides its own chrome.
     let _ = win.set_always_on_top(false);
     let _ = win.set_resizable(true);
@@ -526,7 +530,7 @@ fn morph_to_full(app: AppHandle) -> Result<(), String> {
     win.navigate(url).map_err(|e| format!("navigate failed: {e}"))?;
 
     // Inject data-platform/data-mode + the <style> placeholder after
-    // wellwon.hk's first paint. 800 ms is coarse but reliable; the
+    // wellwon.app's first paint. 800 ms is coarse but reliable; the
     // MutationObserver re-applies on subsequent SPA nav.
     let win_clone = win.clone();
     std::thread::spawn(move || {
@@ -631,7 +635,15 @@ pub fn run() {
             eprintln!("[startup] Option+Space registered");
             #[cfg(target_os = "macos")]
             {
-                let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                // Regular (not Accessory) so a Dock icon appears.
+                // Critical for failsafe quit: if the in-page injection
+                // ever fails to render the close button, the user can
+                // always right-click the Dock icon → Quit. Was Accessory
+                // up through v0.1.2, but with Accessory there's NO Dock
+                // icon, no menu bar item, and no obvious way to exit —
+                // if our overlay X is broken the app effectively
+                // refuses to close.
+                let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
             }
 
             // Build the main window programmatically (NOT via

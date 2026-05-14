@@ -26,14 +26,14 @@
       "identifier": "opener:allow-open-url",
       "allow": [
         { "url": "http://localhost:3005/*" },
-        { "url": "https://wellwon.hk/*" }
+        { "url": "https://wellwon.app/*" }
       ]
     },
     {
       "identifier": "http:default",
       "allow": [
         { "url": "http://localhost:3005/*" },
-        { "url": "https://wellwon.hk/*" }
+        { "url": "https://wellwon.app/*" }
       ]
     }
   ]
