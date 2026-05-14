@@ -1,0 +1,38 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Build artifacts
+dist/
+dist-ssr/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+*.icloud
+Thumbs.db
+
+# Node
+node_modules/
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Generated binaries (CI uploads these to GitHub Releases —
+# they should NEVER live in the repo)
+*.dmg
+*.msi
+*.exe
+*.AppImage
+*.deb

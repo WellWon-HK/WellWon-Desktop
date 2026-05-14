@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-window",
+  "description": "Minimal IPC granted to the wellwon.hk content loaded in the full-mode window — only window-control surface we explicitly want it to have.",
+  "windows": ["main"],
+  "remote": {
+    "urls": [
+      "http://localhost:3005/*",
+      "https://wellwon.hk/*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "core:window:allow-hide",
+    "core:window:allow-minimize",
+    "core:window:allow-start-dragging"
+  ]
+}
