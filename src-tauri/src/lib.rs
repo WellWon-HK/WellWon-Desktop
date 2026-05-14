@@ -321,6 +321,105 @@ const DESKTOP_INJECT_JS: &str = r#"
     }
   }
 
+  /* Custom flat toast for "new version available" — replaces the
+     default native macOS dialog. V02 from /preview/update-toast-variants
+     with two tweaks: text color rgba(255,255,255,0.9) (10% darker than
+     #fff) and border rgba(255,255,255,0.05) (2x less bright than 0.10).
+     Rust emits `ww-update-available` with the version string; the
+     toast appears bottom-right; Install button emits `ww-install-update`
+     which Rust catches → downloads + installs + restarts. */
+  function showUpdateToast(version) {
+    if (document.getElementById('ww-update-toast')) return;
+    if (!document.body) return;
+
+    var wrap = document.createElement('div');
+    wrap.id = 'ww-update-toast';
+    wrap.style.cssText = [
+      'position: fixed', 'bottom: 16px', 'right: 16px', 'width: 270px',
+      'background: #0d0d0e',
+      'border: 1px solid rgba(255,255,255,0.05)',
+      'padding: 14px', 'border-radius: 10px',
+      'z-index: 2147483647',
+      'font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
+    ].join('; ');
+
+    var headRow = document.createElement('div');
+    headRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px;';
+    var dot = document.createElement('span');
+    dot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #d4ff4d;';
+    var label = document.createElement('span');
+    label.style.cssText = 'font-size: 11px; color: rgba(255,255,255,0.55); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;';
+    label.textContent = 'Update';
+    headRow.appendChild(dot);
+    headRow.appendChild(label);
+
+    var title = document.createElement('div');
+    title.style.cssText = 'font-size: 13.5px; color: rgba(255,255,255,0.9); font-weight: 600; margin-bottom: 3px;';
+    title.textContent = 'WellWon Desktop ' + version;
+
+    var body = document.createElement('div');
+    body.style.cssText = 'font-size: 12px; color: rgba(255,255,255,0.55); margin-bottom: 14px; line-height: 1.45;';
+    body.textContent = 'Доступна новая версия. Установить сейчас?';
+
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display: flex; gap: 6px; justify-content: flex-end;';
+    var laterBtn = document.createElement('button');
+    laterBtn.textContent = 'Позже';
+    laterBtn.style.cssText = 'background: transparent; color: rgba(255,255,255,0.55); border: none; border-radius: 6px; padding: 6px 13px; font-size: 12px; font-weight: 500; cursor: pointer;';
+    var installBtn = document.createElement('button');
+    installBtn.textContent = 'Установить';
+    installBtn.style.cssText = 'background: #d4ff4d; color: #000; border: none; border-radius: 6px; padding: 6px 13px; font-size: 12px; font-weight: 600; cursor: pointer;';
+
+    laterBtn.addEventListener('click', function() { wrap.remove(); });
+    installBtn.addEventListener('click', function() {
+      installBtn.disabled = true;
+      installBtn.textContent = 'Загрузка…';
+      installBtn.style.opacity = '0.55';
+      try {
+        var t = window.__TAURI__;
+        if (t && t.event && t.event.emit) {
+          t.event.emit('ww-install-update');
+        } else {
+          console.warn('[ww-desktop] event.emit unavailable');
+        }
+      } catch (e) {
+        console.error('[ww-desktop] install emit:', e);
+      }
+    });
+
+    btnRow.appendChild(laterBtn);
+    btnRow.appendChild(installBtn);
+    wrap.appendChild(headRow);
+    wrap.appendChild(title);
+    wrap.appendChild(body);
+    wrap.appendChild(btnRow);
+    document.body.appendChild(wrap);
+  }
+
+  function wireUpdateListener() {
+    if (window.__wwUpdateListenerWired) return;
+    try {
+      var t = window.__TAURI__;
+      if (!t || !t.event || !t.event.listen) {
+        // __TAURI__ not ready yet — retry shortly.
+        setTimeout(wireUpdateListener, 500);
+        return;
+      }
+      window.__wwUpdateListenerWired = true;
+      t.event.listen('ww-update-available', function(ev) {
+        try {
+          var v = (ev && ev.payload) ? String(ev.payload) : '';
+          showUpdateToast(v);
+        } catch (e) {
+          console.error('[ww-desktop] update toast render:', e);
+        }
+      });
+      console.log('[ww-desktop] update listener wired');
+    } catch (e) {
+      console.error('[ww-desktop] wire update listener:', e);
+    }
+  }
+
   function ensureControls() {
     if (!document.body) return;
     if (!document.getElementById('ww-desktop-drag-handle')) {
@@ -484,6 +583,7 @@ const DESKTOP_INJECT_JS: &str = r#"
   function start() {
     apply();
     attachObserver();
+    wireUpdateListener();
     /* Aggressive re-apply for the first 3 seconds — Next.js
        hydration sometimes swaps large DOM subtrees and our injected
        elements vanish before the MutationObserver catches up.
@@ -662,12 +762,14 @@ fn apply_move_to_active_space(win: &WebviewWindow) {
 }
 
 /// Check the GitHub Release manifest for a newer signed build. If
-/// one is available, prompts the user via a native dialog; on accept,
-/// downloads + installs in place + restarts. Runs once on app start
-/// (spawned async so the main window isn't blocked). Silent on
-/// network errors or up-to-date — they only log to stderr.
+/// one is available, emits the `ww-update-available` event to the
+/// webview — the inject script renders a custom flat toast (V02 from
+/// /preview/update-toast-variants) instead of using the native macOS
+/// dialog. Install click in the toast emits `ww-install-update`
+/// back, which a Rust listener handles. Silent on network errors /
+/// up-to-date.
 async fn check_for_updates(app: tauri::AppHandle) {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+    use tauri::Emitter;
     use tauri_plugin_updater::UpdaterExt;
 
     let updater = match app.updater() {
@@ -712,23 +814,41 @@ async fn check_for_updates(app: tauri::AppHandle) {
         *prev = Some(version.clone());
     }
 
-    let accepted = app
-        .dialog()
-        .message(format!(
-            "Доступна новая версия WellWon Desktop ({}). Установить сейчас?",
-            version
-        ))
-        .title("Обновление")
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            "Установить".into(),
-            "Позже".into(),
-        ))
-        .blocking_show();
-
-    if !accepted {
-        return;
+    // Emit the version to the webview — inject-script listens for
+    // `ww-update-available` and renders the custom toast. The actual
+    // install is triggered later when the user clicks "Установить"
+    // in the toast (handled by the `ww-install-update` Rust listener
+    // registered in setup()).
+    if let Err(e) = app.emit("ww-update-available", version.clone()) {
+        eprintln!("[updater] emit ww-update-available failed: {e}");
     }
+}
 
+/// Install the most recent available update right now. Called from
+/// the webview when the user clicks "Установить" in the custom toast.
+/// Re-runs the check (avoids storing the non-Send Update object) and
+/// installs + restarts on success.
+async fn install_pending_update(app: tauri::AppHandle) {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => {
+            eprintln!("[updater] install: init failed: {e}");
+            return;
+        }
+    };
+    let update = match updater.check().await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            eprintln!("[updater] install: nothing to install");
+            return;
+        }
+        Err(e) => {
+            eprintln!("[updater] install: check failed: {e}");
+            return;
+        }
+    };
     if let Err(e) = update
         .download_and_install(|_chunk, _total| {}, || {})
         .await
@@ -736,7 +856,7 @@ async fn check_for_updates(app: tauri::AppHandle) {
         eprintln!("[updater] install failed: {e}");
         return;
     }
-    eprintln!("[updater] installed v{}, restarting", version);
+    eprintln!("[updater] installed, restarting");
     app.restart();
 }
 
@@ -856,6 +976,19 @@ pub fn run() {
             // objc-msg-send.
             #[cfg(target_os = "macos")]
             apply_move_to_active_space(&_win);
+
+            // Webview → Rust install signal. The custom toast in the
+            // injection script emits `ww-install-update` when the
+            // user clicks "Установить"; we listen here and trigger
+            // the actual download + install + restart.
+            use tauri::Listener;
+            let install_handle = app.handle().clone();
+            app.listen("ww-install-update", move |_event| {
+                let h = install_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    install_pending_update(h).await;
+                });
+            });
 
             // Update checks — once on startup (~1s after the window
             // appears) and every 30 minutes while the app is running.
