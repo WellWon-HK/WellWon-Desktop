@@ -285,6 +285,13 @@ const DESKTOP_INJECT_JS: &str = r#"
     if (html.getAttribute('data-mode') !== 'full') {
       html.setAttribute('data-mode', 'full');
     }
+    /* `__DESKTOP_VERSION__` is substituted at runtime by Rust before
+       handing this script to the webview — see setup() in lib.rs.
+       Read by web-side UserMenu to show "WellWon Desktop · v0.1.4"
+       instead of the web build hash. */
+    if (html.getAttribute('data-desktop-version') !== '__DESKTOP_VERSION__') {
+      html.setAttribute('data-desktop-version', '__DESKTOP_VERSION__');
+    }
   }
 
   function getCurrentWin() {
@@ -343,16 +350,37 @@ const DESKTOP_INJECT_JS: &str = r#"
       var wrap = document.createElement('div');
       wrap.id = 'ww-desktop-controls';
 
-      /* Reload — circular arrow with arrowhead. Refreshes the page
-         (useful when Realtime / TanStack cache desync with server). */
+      /* Reload — circular arrow with arrowhead. HARD reload:
+         clears the Cache API stores (the Workbox/PWA cache served
+         even after a real deploy) and unregisters service workers,
+         THEN does a full page reload. Plain `location.reload()`
+         soft-fetched (kept stale chunks alive). */
       var reloadBtn = makeBtn(
         'ww-reload',
         'Обновить',
-        'Обновить страницу (исправляет десинхрон Realtime / кэша)',
+        'Жёсткое обновление: чистит кэш + перезагружает',
         ['M21 12a9 9 0 1 1-3-6.7', 'M21 4v5h-5'],
         function() {
-          try { window.location.reload(); }
-          catch (e) { console.error('[ww-desktop] reload failed:', e); }
+          var clears = [];
+          try {
+            if (typeof caches !== 'undefined' && caches.keys) {
+              clears.push(caches.keys().then(function(names) {
+                return Promise.all(names.map(function(n) { return caches.delete(n); }));
+              }));
+            }
+            if (navigator && navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+              clears.push(navigator.serviceWorker.getRegistrations().then(function(regs) {
+                return Promise.all(regs.map(function(r) { return r.unregister(); }));
+              }));
+            }
+          } catch (e) {
+            console.error('[ww-desktop] hard-reload setup:', e);
+          }
+          Promise.all(clears).catch(function(e) {
+            console.error('[ww-desktop] hard-reload error:', e);
+          }).then(function() {
+            try { window.location.reload(); } catch (e) {}
+          });
         }
       );
 
@@ -656,12 +684,36 @@ pub fn run() {
             // JS context is wiped.
             let url = url::Url::parse(full_mode_url())
                 .map_err(|e| format!("bad url: {e}"))?;
+
+            // Bake the Cargo-package version into the injection
+            // script so the web side can read it from
+            // `<html data-desktop-version>` (UserMenu BuildStamp uses
+            // it to label the build).
+            let inject = DESKTOP_INJECT_JS
+                .replace("__DESKTOP_VERSION__", env!("CARGO_PKG_VERSION"));
+
+            // Default WebKit/Edge UAs are tagged with `WellWonDesktop/<ver>`
+            // so server-side middleware can detect the desktop client
+            // and route differently (e.g. to /desktop-login instead of
+            // the marketing landing). Two OS-specific base UAs keep
+            // wellwon.app's Next.js + Cloudflare from rejecting the
+            // request — bare custom UAs sometimes fail WAF checks.
+            #[cfg(target_os = "macos")]
+            let base_ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
+            #[cfg(target_os = "windows")]
+            let base_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            let base_ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+            let ua = format!("{} WellWonDesktop/{}", base_ua, env!("CARGO_PKG_VERSION"));
+
             let _win = WebviewWindowBuilder::new(
                 app.handle(),
                 "main",
                 WebviewUrl::External(url),
             )
             .title("WellWon")
+            .user_agent(&ua)
             .inner_size(1280.0, 800.0)
             .min_inner_size(360.0, 480.0)
             .resizable(true)
@@ -669,13 +721,8 @@ pub fn run() {
             .transparent(true)
             .always_on_top(false)
             .shadow(true)
-            // visible(true) so the window appears on first launch when
-            // the user double-clicks the .app — without this, the
-            // Accessory activation policy gives no Dock bounce, no
-            // window pops up, and it reads as "broken". Subsequent
-            // ⌥+Space toggles still hide/show normally.
             .visible(true)
-            .initialization_script(DESKTOP_INJECT_JS)
+            .initialization_script(&inject)
             .build()?;
             Ok(())
         })
