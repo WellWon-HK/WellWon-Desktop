@@ -261,6 +261,11 @@ const DESKTOP_INJECT_JS: &str = r#"
     '}',
     '#ww-desktop-controls button:hover { background: #1f1f21; }',
     '#ww-desktop-controls button:active { transform: scale(0.92); }',
+    /* Pin button — when toggled active, swaps to lime bg + dark icon */
+    '#ww-desktop-controls button.is-active {',
+    '  background: #d4ff4d; color: #0a0a0a;',
+    '}',
+    '#ww-desktop-controls button.is-active:hover { background: #c5f43e; }',
     '#ww-desktop-controls button svg {',
     '  width: 11px; height: 11px;',
     '  stroke: currentColor; fill: none;',
@@ -307,14 +312,20 @@ const DESKTOP_INJECT_JS: &str = r#"
        plugin:window|minimize     — minimize to Dock
        plugin:window|close        — close window (= quit on single-window)
        plugin:window|hide         — hide without quitting (kept for parity) */
-  function invokeWindow(cmd) {
+  function invokeWindow(cmd, extra) {
     try {
       var t = window.__TAURI__;
       if (!t || !t.core || !t.core.invoke) {
         console.warn('[ww-desktop] __TAURI__.core.invoke unavailable');
         return Promise.resolve();
       }
-      return t.core.invoke('plugin:window|' + cmd, { label: 'main' });
+      var args = { label: 'main' };
+      if (extra && typeof extra === 'object') {
+        for (var k in extra) {
+          if (Object.prototype.hasOwnProperty.call(extra, k)) args[k] = extra[k];
+        }
+      }
+      return t.core.invoke('plugin:window|' + cmd, args);
     } catch (e) {
       console.error('[ww-desktop] invokeWindow ' + cmd + ' failed:', e);
       return Promise.resolve();
@@ -456,6 +467,37 @@ const DESKTOP_INJECT_JS: &str = r#"
       var wrap = document.createElement('div');
       wrap.id = 'ww-desktop-controls';
 
+      /* Pin — toggle always-on-top. When active the window stays
+         above every other macOS window. Active state styling: lime
+         background, dark icon. Persists state across reloads via
+         localStorage so the user's pin preference survives webview
+         reloads + Cmd+R + auto-update restarts. */
+      var pinned = false;
+      try { pinned = window.localStorage.getItem('ww-desktop-pinned') === '1'; } catch (e) {}
+
+      var pinBtn = makeBtn(
+        'ww-pin',
+        'Закрепить поверх',
+        'Закрепить окно поверх остальных',
+        ['M9 4h6', 'M10 4v6l-2 2v2h8v-2l-2-2V4', 'M12 14v6'],
+        function() {
+          pinned = !pinned;
+          pinBtn.classList.toggle('is-active', pinned);
+          pinBtn.title = pinned
+            ? 'Открепить — окно будет уходить за другие'
+            : 'Закрепить окно поверх остальных';
+          try { window.localStorage.setItem('ww-desktop-pinned', pinned ? '1' : '0'); } catch (e) {}
+          invokeWindow('set_always_on_top', { value: pinned });
+        }
+      );
+      if (pinned) {
+        pinBtn.classList.add('is-active');
+        pinBtn.title = 'Открепить — окно будет уходить за другие';
+        // Apply the OS-level always-on-top flag on every page load
+        // so a reloaded webview keeps the pinned state.
+        invokeWindow('set_always_on_top', { value: true });
+      }
+
       /* Reload — circular arrow with arrowhead. HARD reload:
          clears the Cache API stores (the Workbox/PWA cache served
          even after a real deploy) and unregisters service workers,
@@ -512,6 +554,10 @@ const DESKTOP_INJECT_JS: &str = r#"
         function() { invokeWindow('close'); }
       );
 
+      /* Order in cluster (left → right): pin, reload, min, close.
+         Pin is leftmost so the destructive close stays where users
+         expect (rightmost). */
+      wrap.appendChild(pinBtn);
       wrap.appendChild(reloadBtn);
       wrap.appendChild(minBtn);
       wrap.appendChild(closeBtn);
