@@ -625,11 +625,79 @@ fn toggle_main_panel(app: AppHandle) -> Result<(), String> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Check the GitHub Release manifest for a newer signed build. If
+/// one is available, prompts the user via a native dialog; on accept,
+/// downloads + installs in place + restarts. Runs once on app start
+/// (spawned async so the main window isn't blocked). Silent on
+/// network errors or up-to-date — they only log to stderr.
+async fn check_for_updates(app: tauri::AppHandle) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+    use tauri_plugin_updater::UpdaterExt;
+
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => {
+            eprintln!("[updater] init failed: {e}");
+            return;
+        }
+    };
+    let update = match updater.check().await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            eprintln!(
+                "[updater] up to date (v{})",
+                env!("CARGO_PKG_VERSION")
+            );
+            return;
+        }
+        Err(e) => {
+            eprintln!("[updater] check failed: {e}");
+            return;
+        }
+    };
+
+    let version = update.version.clone();
+    eprintln!(
+        "[updater] new version available: v{} -> v{}",
+        env!("CARGO_PKG_VERSION"),
+        version
+    );
+
+    let accepted = app
+        .dialog()
+        .message(format!(
+            "Доступна новая версия WellWon Desktop ({}). Установить сейчас?",
+            version
+        ))
+        .title("Обновление")
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Установить".into(),
+            "Позже".into(),
+        ))
+        .blocking_show();
+
+    if !accepted {
+        return;
+    }
+
+    if let Err(e) = update
+        .download_and_install(|_chunk, _total| {}, || {})
+        .await
+    {
+        eprintln!("[updater] install failed: {e}");
+        return;
+    }
+    eprintln!("[updater] installed v{}, restarting", version);
+    app.restart();
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             auth::save_desktop_token,
             auth::get_desktop_token,
@@ -724,6 +792,18 @@ pub fn run() {
             .visible(true)
             .initialization_script(&inject)
             .build()?;
+
+            // Background update check — happens AFTER the window is up
+            // so the user sees the app instantly, and the dialog
+            // (if any) appears 1–2s later when the network round-trip
+            // completes. Failures (offline, GitHub down, manifest
+            // mismatch) are logged and swallowed; the app keeps
+            // running as if no check was made.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                check_for_updates(handle).await;
+            });
+
             Ok(())
         })
         .run(tauri::generate_context!())

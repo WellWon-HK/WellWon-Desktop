@@ -8,9 +8,11 @@ name: Release
 # .msi/.exe (Windows x64). `tauri-apps/tauri-action` creates a GitHub
 # Release at the pushed tag and uploads the artifacts to it.
 #
-# Builds are UNSIGNED - first-launch warnings on both OSes are expected
-# (see release body for the workaround). Code signing comes in Phase 3
-# when we have the Apple Developer ID + Windows EV cert.
+# Updater signing: when TAURI_SIGNING_PRIVATE_KEY is set, tauri-action
+# also produces a signed `latest.json` manifest in the release. The
+# desktop app's updater plugin polls this URL and offers in-place
+# updates. The Ed25519 keypair was generated locally; the matching
+# public key lives in src-tauri/tauri.conf.json.
 
 on:
   push:
@@ -60,6 +62,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'WellWon Desktop ${{ github.ref_name }}'
@@ -70,7 +74,7 @@ jobs:
 
             **Windows** — скачайте `_x64-setup.exe`, запустите. SmartScreen может пожаловаться — нажмите **Подробнее** → **Выполнить в любом случае**. Это билд без code-signing сертификата.
 
-            Подписанные релизы — Phase 3, после покупки сертификатов.
+            После установки v0.1.6 и выше — будущие обновления приходят автоматически через встроенный updater.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
