@@ -253,13 +253,13 @@ const DESKTOP_INJECT_JS: &str = r#"
     '#ww-desktop-controls button {',
     '  width: 20px; height: 20px; padding: 0; border-radius: 999px;',
     '  border: none; cursor: pointer;',
-    '  background: #4a4b52;',
+    '  background: #0c0c0d;',
     '  color: #ffffff;',
     '  display: inline-flex; align-items: center; justify-content: center;',
     '  transition: background 120ms ease, transform 120ms ease;',
-    '  box-shadow: 0 1px 2px rgba(0,0,0,0.4);',
+    '  box-shadow: 0 1px 2px rgba(0,0,0,0.5);',
     '}',
-    '#ww-desktop-controls button:hover { background: #62636b; }',
+    '#ww-desktop-controls button:hover { background: #1f1f21; }',
     '#ww-desktop-controls button:active { transform: scale(0.92); }',
     '#ww-desktop-controls button svg {',
     '  width: 11px; height: 11px;',
@@ -299,23 +299,25 @@ const DESKTOP_INJECT_JS: &str = r#"
     }
   }
 
-  function getCurrentWin() {
-    var t = window.__TAURI__;
-    if (!t || !t.window) return null;
-    if (t.window.getCurrentWindow) return t.window.getCurrentWindow();
-    if (t.window.getCurrent) return t.window.getCurrent();
-    return null;
-  }
-  function safeWindow(fn) {
+  /* On REMOTE pages (wellwon.app, Railway, localhost:3005), Tauri 2
+     does not bundle the JS wrapper @tauri-apps/api/window — so
+     `__TAURI__.window.getCurrentWindow()` is undefined and the close /
+     minimize buttons silently no-op. Only `__TAURI__.core.invoke` is
+     exposed cross-origin. We call the window plugin commands directly:
+       plugin:window|minimize     — minimize to Dock
+       plugin:window|close        — close window (= quit on single-window)
+       plugin:window|hide         — hide without quitting (kept for parity) */
+  function invokeWindow(cmd) {
     try {
-      var w = getCurrentWin();
-      if (!w) {
-        console.warn('[ww-desktop] __TAURI__.window not available');
-        return;
+      var t = window.__TAURI__;
+      if (!t || !t.core || !t.core.invoke) {
+        console.warn('[ww-desktop] __TAURI__.core.invoke unavailable');
+        return Promise.resolve();
       }
-      fn(w);
+      return t.core.invoke('plugin:window|' + cmd, { label: 'main' });
     } catch (e) {
-      console.error('[ww-desktop] window action failed:', e);
+      console.error('[ww-desktop] invokeWindow ' + cmd + ' failed:', e);
+      return Promise.resolve();
     }
   }
 
@@ -395,20 +397,20 @@ const DESKTOP_INJECT_JS: &str = r#"
         'Свернуть',
         'Свернуть',
         ['M5 12h14'],
-        function() { safeWindow(function(w) { return w.minimize(); }); }
+        function() { invokeWindow('minimize'); }
       );
 
-      /* Close — diagonal X. Quits the app (calls window.close() which,
-         with Tauri 2 + a single window, terminates the process). User
-         can re-launch from Dock or Applications; hotkey ⌥+Space is
-         only active while the app is running. For "hide and keep
-         hotkey alive" the minimise button is the right affordance. */
+      /* Close — diagonal X. Quits the app (window plugin's `close`
+         destroys the only window → Tauri terminates the process).
+         User can re-launch from Dock or Applications; hotkey
+         ⌥+Space is only active while the app is running. For "hide
+         and keep hotkey alive" use the minimise button. */
       var closeBtn = makeBtn(
         'ww-close',
         'Закрыть',
         'Закрыть приложение (⌘Q)',
         ['M6 6l12 12', 'M18 6L6 18'],
-        function() { safeWindow(function(w) { return w.close(); }); }
+        function() { invokeWindow('close'); }
       );
 
       wrap.appendChild(reloadBtn);
