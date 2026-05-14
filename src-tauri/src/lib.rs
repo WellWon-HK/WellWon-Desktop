@@ -790,6 +790,15 @@ pub fn run() {
             .always_on_top(false)
             .shadow(true)
             .visible(true)
+            // Spotlight-style "follow me across Spaces". The default
+            // macOS behaviour binds a window to the Space it was
+            // opened on — so a user who hits ⌥+Space from Space 3
+            // gets the window re-summoned on Space 1 (original
+            // Space), forcing a manual swipe. Marking the window as
+            // joinable to all workspaces makes macOS render it on
+            // whichever Space is active when .show() is called.
+            // Windows / Linux: no-op.
+            .visible_on_all_workspaces(true)
             .initialization_script(&inject)
             .build()?;
 
