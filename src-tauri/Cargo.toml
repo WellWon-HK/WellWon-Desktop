@@ -1,6 +1,6 @@
 [package]
 name = "wellwon-desktop"
-version = "0.1.7"
+version = "0.1.8"
 description = "WellWon Desktop"
 authors = ["Eduard"]
 edition = "2021"
@@ -20,6 +20,14 @@ tauri-plugin-opener = "2.0"
 tauri-plugin-http = "2.0"
 tauri-plugin-updater = "2.0"
 tauri-plugin-dialog = "2.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Used to set NSWindowCollectionBehaviorMoveToActiveSpace on the main
+# window — Tauri 2's builder doesn't expose this flag directly, but
+# macOS needs it for Spotlight-style "window jumps to the active Space
+# when summoned by hotkey, instead of dragging the user to the Space
+# where it was opened."
+objc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"

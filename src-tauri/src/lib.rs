@@ -625,6 +625,35 @@ fn toggle_main_panel(app: AppHandle) -> Result<(), String> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Set the `NSWindowCollectionBehaviorMoveToActiveSpace` flag on
+/// the main window via raw objc-msg-send. Tauri 2's builder API
+/// doesn't expose this flag.
+///
+/// Effect: when the window is summoned (show + set_focus) from a
+/// different macOS Space than the one it currently lives on, macOS
+/// moves the window to the active Space instead of swiping the user
+/// over to its original Space.
+///
+/// Constant value: NSWindowCollectionBehaviorMoveToActiveSpace = 1<<1.
+#[cfg(target_os = "macos")]
+fn apply_move_to_active_space(win: &WebviewWindow) {
+    let ns_window_ptr = match win.ns_window() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("[spaces] ns_window failed: {e}");
+            return;
+        }
+    };
+    #[allow(unused_imports)]
+    use objc::{class, msg_send, sel, sel_impl};
+    unsafe {
+        // ns_window() returns *mut c_void pointing at an NSWindow.
+        // Cast to objc Object and send setCollectionBehavior:.
+        let ns_window: *mut objc::runtime::Object = ns_window_ptr as *mut _;
+        let _: () = msg_send![ns_window, setCollectionBehavior: 2_u64];
+    }
+}
+
 /// Check the GitHub Release manifest for a newer signed build. If
 /// one is available, prompts the user via a native dialog; on accept,
 /// downloads + installs in place + restarts. Runs once on app start
@@ -790,17 +819,23 @@ pub fn run() {
             .always_on_top(false)
             .shadow(true)
             .visible(true)
-            // Spotlight-style "follow me across Spaces". The default
-            // macOS behaviour binds a window to the Space it was
-            // opened on — so a user who hits ⌥+Space from Space 3
-            // gets the window re-summoned on Space 1 (original
-            // Space), forcing a manual swipe. Marking the window as
-            // joinable to all workspaces makes macOS render it on
-            // whichever Space is active when .show() is called.
-            // Windows / Linux: no-op.
-            .visible_on_all_workspaces(true)
             .initialization_script(&inject)
             .build()?;
+
+            // Spotlight-style "summon to active Space". The macOS
+            // default binds a window to whichever Space it was opened
+            // on — so a user who swipes to Space 2 and presses
+            // ⌥+Space gets dragged back to Space 1 to find the window.
+            // Visible-on-all-workspaces (what v0.1.7 used) is also
+            // wrong: it makes the window appear on EVERY Space, so it
+            // "follows" the user mid-swipe.
+            // We want NSWindowCollectionBehaviorMoveToActiveSpace
+            // (bit 1<<1) — window stays on one Space until it's
+            // shown/focused, then jumps to whichever Space is active.
+            // Tauri 2 doesn't expose this flag, so we set it via
+            // objc-msg-send.
+            #[cfg(target_os = "macos")]
+            apply_move_to_active_space(&_win);
 
             // Background update check — happens AFTER the window is up
             // so the user sees the app instantly, and the dialog
