@@ -1,0 +1,76 @@
+name: Release
+
+# Tag-driven. To cut a release:
+#   npm version patch                  # 0.1.0 -> 0.1.1, creates tag v0.1.1
+#   git push --follow-tags
+#
+# The matrix builds .dmg (universal Mac, ARM + Intel via lipo) and
+# .msi/.exe (Windows x64). `tauri-apps/tauri-action` creates a GitHub
+# Release at the pushed tag and uploads the artifacts to it.
+#
+# Builds are UNSIGNED - first-launch warnings on both OSes are expected
+# (see release body for the workaround). Code signing comes in Phase 3
+# when we have the Apple Developer ID + Windows EV cert.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target universal-apple-darwin'
+          - platform: windows-latest
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache Rust target dir
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build and publish (tauri-action)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'WellWon Desktop ${{ github.ref_name }}'
+          releaseBody: |
+            ## Установка
+
+            **macOS** — скачайте `.dmg`, смонтируйте, перетащите `WellWon.app` в `Applications`. При первом запуске: правый клик → **Открыть** → **Открыть всё равно**. Это билд без подписи Apple Developer ID, поэтому Gatekeeper предупреждает.
+
+            **Windows** — скачайте `_x64-setup.exe`, запустите. SmartScreen может пожаловаться — нажмите **Подробнее** → **Выполнить в любом случае**. Это билд без code-signing сертификата.
+
+            Подписанные релизы — Phase 3, после покупки сертификатов.
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
