@@ -153,7 +153,7 @@ fn full_mode_url() -> &'static str {
     if cfg!(debug_assertions) {
         "http://localhost:3005/chat"
     } else {
-        "https://wellwon.app/chat"
+        "https://wellwon-app-production.up.railway.app/chat"
     }
 }
 

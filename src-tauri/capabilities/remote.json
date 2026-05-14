@@ -6,7 +6,7 @@
   "remote": {
     "urls": [
       "http://localhost:3005/*",
-      "https://wellwon.app/*"
+      "https://wellwon-app-production.up.railway.app/*"
     ]
   },
   "permissions": [
