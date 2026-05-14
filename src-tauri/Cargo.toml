@@ -1,6 +1,6 @@
 [package]
 name = "wellwon-desktop"
-version = "0.1.8"
+version = "0.1.9"
 description = "WellWon Desktop"
 authors = ["Eduard"]
 edition = "2021"
@@ -20,6 +20,9 @@ tauri-plugin-opener = "2.0"
 tauri-plugin-http = "2.0"
 tauri-plugin-updater = "2.0"
 tauri-plugin-dialog = "2.0"
+# Direct dep so we can use tokio::time::sleep in the updater poll loop.
+# tauri pulls tokio transitively but without the `time` feature.
+tokio = { version = "1", features = ["time"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Used to set NSWindowCollectionBehaviorMoveToActiveSpace on the main

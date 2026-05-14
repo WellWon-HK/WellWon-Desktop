@@ -33,6 +33,11 @@ mod auth;
 /// a fresh launch falls back to `snap_to_cursor_monitor`.
 static LAST_PANEL_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 
+/// Latest update version we've shown the prompt for THIS app session.
+/// Stops the 30-minute periodic poll from re-asking about the same
+/// build after the user clicked "Позже".
+static LAST_PROMPTED_VERSION: Mutex<Option<String>> = Mutex::new(None);
+
 fn remember_position(window: &WebviewWindow) {
     if let Ok(pos) = window.outer_position() {
         if let Ok(mut guard) = LAST_PANEL_POS.lock() {
@@ -692,6 +697,19 @@ async fn check_for_updates(app: tauri::AppHandle) {
         version
     );
 
+    // Suppress repeat prompts for the same version within one app
+    // session — without this the 30-min poll re-pesters the user
+    // every half-hour after they clicked "Позже". A genuinely newer
+    // build (with a different version string) WILL re-prompt.
+    {
+        let mut prev = LAST_PROMPTED_VERSION.lock().unwrap_or_else(|e| e.into_inner());
+        if prev.as_deref() == Some(version.as_str()) {
+            eprintln!("[updater] already prompted for v{version} this session, skipping");
+            return;
+        }
+        *prev = Some(version.clone());
+    }
+
     let accepted = app
         .dialog()
         .message(format!(
@@ -837,15 +855,21 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             apply_move_to_active_space(&_win);
 
-            // Background update check — happens AFTER the window is up
-            // so the user sees the app instantly, and the dialog
-            // (if any) appears 1–2s later when the network round-trip
-            // completes. Failures (offline, GitHub down, manifest
-            // mismatch) are logged and swallowed; the app keeps
-            // running as if no check was made.
+            // Update checks — once on startup (~1s after the window
+            // appears) and every 30 minutes while the app is running.
+            // Each check is idempotent and bails fast on no-update /
+            // network error. A static guard inside check_for_updates
+            // suppresses the dialog if the same version was already
+            // offered in this session, so a user who clicked "Позже"
+            // doesn't get re-pestered every 30 minutes for the same
+            // build — only a NEWER version re-prompts.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                check_for_updates(handle).await;
+                check_for_updates(handle.clone()).await;
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(60 * 30)).await;
+                    check_for_updates(handle.clone()).await;
+                }
             });
 
             Ok(())
