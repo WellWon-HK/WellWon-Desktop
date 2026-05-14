@@ -657,7 +657,12 @@ pub fn run() {
             .transparent(true)
             .always_on_top(false)
             .shadow(true)
-            .visible(false)
+            // visible(true) so the window appears on first launch when
+            // the user double-clicks the .app — without this, the
+            // Accessory activation policy gives no Dock bounce, no
+            // window pops up, and it reads as "broken". Subsequent
+            // ⌥+Space toggles still hide/show normally.
+            .visible(true)
             .initialization_script(DESKTOP_INJECT_JS)
             .build()?;
             Ok(())
