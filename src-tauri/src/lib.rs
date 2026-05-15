@@ -14,7 +14,7 @@
 // `morph_to_compact`, `set_panel_pinned`, `toggle_main_panel` are
 // kept defined so we can switch back if needed.
 
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use tauri::{
@@ -161,14 +161,46 @@ fn center_on_cursor_monitor(window: &WebviewWindow, target_w: u32, target_h: u32
     let _ = window.set_position(PhysicalPosition::new(x.max(pos.x), y.max(pos.y)));
 }
 
-/// Pick the right base URL for the morph target. Dev = localhost
-/// :3005 (the web app's dev port). Prod = wellwon.app.
+/// Pick the right base URL for the morph target.
+///
+/// Resolution order (first match wins, cached on first call):
+///   1. `WW_DEV_URL` env var — explicit override. Works in BOTH debug
+///      and release builds. Use cases:
+///      - Run release binary against localhost while iterating:
+///          `WW_DEV_URL=http://localhost:3005/chat /Applications/WellWon.app/Contents/MacOS/WellWon`
+///      - Point release binary at a Railway preview branch:
+///          `WW_DEV_URL=https://wellwon-app-pr-42.up.railway.app/chat ...`
+///      The path component must be `/chat` — the shell assumes that
+///      route exists. If you pass an origin without a path we append
+///      `/chat` for you.
+///   2. Debug build (`cargo tauri dev`) → `http://localhost:3005/chat`
+///   3. Release build → Railway production
 fn full_mode_url() -> &'static str {
-    if cfg!(debug_assertions) {
-        "http://localhost:3005/chat"
-    } else {
-        "https://wellwon-app-production.up.railway.app/chat"
-    }
+    static URL: OnceLock<String> = OnceLock::new();
+    URL.get_or_init(|| {
+        if let Ok(raw) = std::env::var("WW_DEV_URL") {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                // If user passed an origin without a path, append /chat.
+                let resolved = match Url::parse(trimmed) {
+                    Ok(mut u) if u.path() == "/" || u.path().is_empty() => {
+                        u.set_path("/chat");
+                        u.to_string()
+                    }
+                    Ok(u) => u.to_string(),
+                    Err(_) => trimmed.to_string(), // let downstream Url::parse surface the error
+                };
+                eprintln!("[wellwon] full_mode_url <- WW_DEV_URL = {}", resolved);
+                return resolved;
+            }
+        }
+        if cfg!(debug_assertions) {
+            "http://localhost:3005/chat".to_string()
+        } else {
+            "https://wellwon-app-production.up.railway.app/chat".to_string()
+        }
+    })
+    .as_str()
 }
 
 /// JS injected after navigate. Three concerns folded together:

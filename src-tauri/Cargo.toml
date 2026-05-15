@@ -1,6 +1,6 @@
 [package]
 name = "wellwon-desktop"
-version = "0.1.15"
+version = "0.1.16"
 description = "WellWon Desktop"
 authors = ["Eduard"]
 edition = "2021"
