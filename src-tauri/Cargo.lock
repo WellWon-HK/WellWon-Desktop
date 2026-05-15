@@ -5230,7 +5230,7 @@ dependencies = [
 
 [[package]]
 name = "wellwon-desktop"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "objc",
  "serde",

@@ -197,7 +197,7 @@ const DESKTOP_INJECT_JS: &str = r#"
        level — fixed descendants are clipped too, so the corners stay
        rounded at every viewport width. */
     'html { clip-path: inset(0 round 12px); }',
-    'html, body { border-radius: 12px; overflow: hidden; background-clip: padding-box; }',
+    'html, body { border-radius: 12px; background-clip: padding-box; }',
 
     /* Selection / cursor policy.
        Default everywhere: no selection + default cursor (no I-beam).
