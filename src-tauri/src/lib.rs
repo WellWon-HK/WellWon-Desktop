@@ -614,11 +614,39 @@ const DESKTOP_INJECT_JS: &str = r#"
         function() { invokeWindow('close'); }
       );
 
-      /* Order in cluster (left → right): pin, reload, min, close.
-         Pin is leftmost so the destructive close stays where users
-         expect (rightmost). */
+      /* Settings — gear. Same destination as the ⌘, hotkey; an
+         affordance for users who don't know the shortcut yet. Skip
+         the navigation when we're already on the settings page so
+         a double-click doesn't trigger a noisy re-mount. */
+      var settingsBtn = makeBtn(
+        'ww-settings',
+        'Настройки',
+        'Настройки приложения (⌘,)',
+        [
+          'M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6z',
+          'M12 4v2',
+          'M12 18v2',
+          'M4 12h2',
+          'M18 12h2',
+          'M6.34 6.34l1.42 1.42',
+          'M16.24 16.24l1.42 1.42',
+          'M17.66 6.34l-1.42 1.42',
+          'M7.76 16.24l-1.42 1.42'
+        ],
+        function() {
+          if (location.pathname === '/desktop/settings') return;
+          location.href = '/desktop/settings';
+        }
+      );
+
+      /* Order in cluster (left → right): pin, reload, settings, min,
+         close. Pin is leftmost (toggle state), settings sits between
+         reload (navigation/refresh) and the window-control pair
+         (min/close) — it's a navigation action, not a window action.
+         Close stays rightmost where users expect destructive UI. */
       wrap.appendChild(pinBtn);
       wrap.appendChild(reloadBtn);
+      wrap.appendChild(settingsBtn);
       wrap.appendChild(minBtn);
       wrap.appendChild(closeBtn);
       document.body.appendChild(wrap);
