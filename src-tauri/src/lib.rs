@@ -240,12 +240,12 @@ const DESKTOP_INJECT_JS: &str = r#"
        aiming for the pill. */
     '#ww-desktop-drag-handle {',
     '  position: fixed; top: 3px; left: 50%; transform: translateX(-50%);',
-    '  width: 100px; height: 6px; border-radius: 999px;',
+    '  width: 100px; height: 4px; border-radius: 999px;',
     '  background: rgba(255,255,255,0.20); cursor: grab;',
     '  z-index: 2147483647; transition: background 120ms ease, height 120ms ease;',
     '}',
     '#ww-desktop-drag-handle:hover {',
-    '  background: rgba(255,255,255,0.45); height: 7px;',
+    '  background: rgba(255,255,255,0.45); height: 5px;',
     '}',
 
     /* controls hidden by default — JS toggles inline opacity +',
