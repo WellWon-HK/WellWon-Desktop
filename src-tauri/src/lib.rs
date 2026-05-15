@@ -38,6 +38,15 @@ static LAST_PANEL_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 /// build after the user clicked "Позже".
 static LAST_PROMPTED_VERSION: Mutex<Option<String>> = Mutex::new(None);
 
+/// Last update version detected by Rust, queryable by the webview
+/// on listener-ready. Belt-and-suspenders for the early-emit race:
+/// if Rust's first check finds an update BEFORE the inject script's
+/// listener has wired up (very likely — check runs at T+0, listener
+/// wires up after DOMContentLoaded + a few setTimeout retries), the
+/// emit is lost. Webview emits `ww-ready` after wiring; we catch it
+/// and re-emit `ww-update-available` with the stored version.
+static PENDING_UPDATE_VERSION: Mutex<Option<String>> = Mutex::new(None);
+
 fn remember_position(window: &WebviewWindow) {
     if let Ok(pos) = window.outer_position() {
         if let Ok(mut guard) = LAST_PANEL_POS.lock() {
@@ -405,6 +414,18 @@ const DESKTOP_INJECT_JS: &str = r#"
     wrap.appendChild(body);
     wrap.appendChild(btnRow);
     document.body.appendChild(wrap);
+
+    // Tell Rust the toast was actually shown for THIS version, so it
+    // suppresses repeat emissions in the same session. If we never
+    // confirm, the 30-min poll keeps re-emitting until it does.
+    try {
+      var t = window.__TAURI__;
+      if (t && t.event && t.event.emit) {
+        t.event.emit('ww-toast-shown', version);
+      }
+    } catch (e) {
+      console.error('[ww-desktop] confirm ww-toast-shown:', e);
+    }
   }
 
   function wireUpdateListener() {
@@ -426,6 +447,13 @@ const DESKTOP_INJECT_JS: &str = r#"
         }
       });
       console.log('[ww-desktop] update listener wired');
+      // Tell Rust the listener is now armed. Rust will re-emit any
+      // update event that was missed during the startup race.
+      try {
+        if (t.event && t.event.emit) t.event.emit('ww-ready');
+      } catch (e) {
+        console.error('[ww-desktop] emit ww-ready:', e);
+      }
     } catch (e) {
       console.error('[ww-desktop] wire update listener:', e);
     }
@@ -847,17 +875,22 @@ async fn check_for_updates(app: tauri::AppHandle) {
         version
     );
 
-    // Suppress repeat prompts for the same version within one app
-    // session — without this the 30-min poll re-pesters the user
-    // every half-hour after they clicked "Позже". A genuinely newer
-    // build (with a different version string) WILL re-prompt.
+    // Store pending so the webview can pull it on listener-ready
+    // even if our emit below races ahead of the JS listener.
+    *PENDING_UPDATE_VERSION.lock().unwrap_or_else(|e| e.into_inner()) = Some(version.clone());
+
+    // Suppress repeat prompts for the same version, BUT only after
+    // a confirmed delivery — previously we marked-as-prompted before
+    // emit, so a lost early emit would permanently silence the
+    // 30-min poll. Now we only set LAST_PROMPTED_VERSION when the
+    // webview acknowledges (via `ww-toast-shown`). Until then the
+    // poll keeps re-emitting.
     {
-        let mut prev = LAST_PROMPTED_VERSION.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = LAST_PROMPTED_VERSION.lock().unwrap_or_else(|e| e.into_inner());
         if prev.as_deref() == Some(version.as_str()) {
-            eprintln!("[updater] already prompted for v{version} this session, skipping");
+            eprintln!("[updater] already shown v{version}, skipping emit");
             return;
         }
-        *prev = Some(version.clone());
     }
 
     // Emit the version to the webview — inject-script listens for
@@ -1027,7 +1060,7 @@ pub fn run() {
             // injection script emits `ww-install-update` when the
             // user clicks "Установить"; we listen here and trigger
             // the actual download + install + restart.
-            use tauri::Listener;
+            use tauri::{Emitter, Listener};
             let install_handle = app.handle().clone();
             app.listen("ww-install-update", move |_event| {
                 let h = install_handle.clone();
@@ -1036,8 +1069,44 @@ pub fn run() {
                 });
             });
 
-            // Update checks — once on startup (~1s after the window
-            // appears) and every 30 minutes while the app is running.
+            // Webview → Rust "I'm ready to receive update events".
+            // The inject script emits this once `__TAURI__.event.listen`
+            // wired up. We respond by re-emitting whatever pending
+            // update we found earlier, so an early-fire race during
+            // startup doesn't permanently lose the prompt.
+            let ready_handle = app.handle().clone();
+            app.listen("ww-ready", move |_event| {
+                let pending = PENDING_UPDATE_VERSION
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                if let Some(v) = pending {
+                    eprintln!("[updater] webview ready — re-emitting pending v{v}");
+                    if let Err(e) = ready_handle.emit("ww-update-available", v) {
+                        eprintln!("[updater] re-emit failed: {e}");
+                    }
+                }
+            });
+
+            // Webview → Rust "toast shown". Marks the version as
+            // prompted so the 30-min poll suppresses repeats. Only
+            // suppress AFTER confirmed delivery — fixes the bug where
+            // a lost emit still flipped the suppression bit and
+            // silenced future polls.
+            app.listen("ww-toast-shown", move |event| {
+                let payload = event.payload();
+                // Payload is JSON-encoded version string, e.g. "\"0.1.13\""
+                let version = payload.trim_matches('"').to_string();
+                if !version.is_empty() {
+                    *LAST_PROMPTED_VERSION
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()) = Some(version);
+                }
+            });
+
+            // Update checks — once on startup (~5s after the window
+            // appears, gives the inject script's listener time to
+            // wire up) and every 30 minutes while the app is running.
             // Each check is idempotent and bails fast on no-update /
             // network error. A static guard inside check_for_updates
             // suppresses the dialog if the same version was already
@@ -1046,6 +1115,12 @@ pub fn run() {
             // build — only a NEWER version re-prompts.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
+                // Initial 5-second delay so the webview's `ww-ready`
+                // handshake is wired up before we fire the first
+                // `ww-update-available` emit. Without this the
+                // listener race made the prompt unreliable on
+                // startup.
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 check_for_updates(handle.clone()).await;
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(60 * 30)).await;
