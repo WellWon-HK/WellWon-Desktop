@@ -714,6 +714,22 @@ const DESKTOP_INJECT_JS: &str = r#"
   } else {
     start();
   }
+
+  /* ⌘, → open in-app settings.
+     Standard macOS shortcut for "Preferences/Settings…". We bind
+     window-level (not global) so the hotkey only fires when WellWon
+     is focused — Spotlight-style apps that hijack ⌘, system-wide
+     break user expectations. preventDefault stops Safari's default
+     "Preferences" gesture inside the WebView.
+     Don't navigate if we're already on /desktop/settings (avoids a
+     re-render loop if the user mashes the key). */
+  window.addEventListener('keydown', function(e) {
+    var isCmdComma = (e.metaKey || e.ctrlKey) && e.key === ',' && !e.shiftKey && !e.altKey;
+    if (!isCmdComma) return;
+    e.preventDefault();
+    if (location.pathname === '/desktop/settings') return;
+    location.href = '/desktop/settings';
+  }, true);
 })();
 "#;
 
@@ -809,6 +825,9 @@ fn morph_to_compact(app: AppHandle) -> Result<(), String> {
 }
 
 /// Toggle the always-on-top flag (pin button in the compact panel).
+/// Persists the new state to settings.json so the next launch can
+/// restore the user's preference — macOS Resume doesn't track this
+/// (pin is app-level state, not Cocoa window-level state).
 #[tauri::command]
 fn set_panel_pinned(app: AppHandle, pinned: bool) -> Result<(), String> {
     let win = app
@@ -816,7 +835,99 @@ fn set_panel_pinned(app: AppHandle, pinned: bool) -> Result<(), String> {
         .ok_or_else(|| "main window missing".to_string())?;
     win.set_always_on_top(pinned)
         .map_err(|e| format!("set_always_on_top failed: {e}"))?;
+    persist_pin_state(&app, pinned);
     Ok(())
+}
+
+/// Settings store helpers — thin wrapper around tauri-plugin-store.
+/// All settings live in a single `settings.json` file under
+/// `~/Library/Application Support/wellwon/`. Keys used:
+///   - `pin_state`        bool — always-on-top, restored on window show
+///   - `last_update_check` u64 (unix ms) — last manual or automatic check
+const SETTINGS_FILE: &str = "settings.json";
+
+fn persist_pin_state(app: &AppHandle, pinned: bool) {
+    use tauri_plugin_store::StoreExt;
+    if let Ok(store) = app.store(SETTINGS_FILE) {
+        store.set("pin_state", pinned);
+        let _ = store.save();
+    }
+}
+
+fn read_persisted_pin_state(app: &AppHandle) -> bool {
+    use tauri_plugin_store::StoreExt;
+    app.store(SETTINGS_FILE)
+        .ok()
+        .and_then(|s| s.get("pin_state"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+fn record_update_check(app: &AppHandle) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tauri_plugin_store::StoreExt;
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    if let Ok(store) = app.store(SETTINGS_FILE) {
+        store.set("last_update_check", now_ms);
+        let _ = store.save();
+    }
+}
+
+/// Return the bundled package version. Used by the About tab.
+#[tauri::command]
+fn settings_get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Whether the OS has WellWon registered as a Login Item.
+#[tauri::command]
+fn settings_get_autostart_enabled(app: AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch()
+        .is_enabled()
+        .map_err(|e| format!("autostart probe failed: {e}"))
+}
+
+/// Toggle the Login Item registration. macOS prompts the user once
+/// the first time we enable it (Accessibility / Login Items
+/// permission UI lives in System Settings).
+#[tauri::command]
+fn settings_set_autostart_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    if enabled {
+        manager
+            .enable()
+            .map_err(|e| format!("autostart enable failed: {e}"))?;
+    } else {
+        manager
+            .disable()
+            .map_err(|e| format!("autostart disable failed: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Webview-triggered update check — returns the version string of an
+/// available update, or empty string if up to date. Updates the
+/// `last_update_check` timestamp in settings.json. Surfaces errors as
+/// a String so the UI can show "Couldn't reach update server" etc.
+#[tauri::command]
+async fn settings_manual_check_for_updates(app: AppHandle) -> Result<String, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    record_update_check(&app);
+    match app
+        .updater()
+        .map_err(|e| format!("updater unavailable: {e}"))?
+        .check()
+        .await
+    {
+        Ok(Some(u)) => Ok(u.version.clone()),
+        Ok(None) => Ok(String::new()),
+        Err(e) => Err(format!("update check failed: {e}")),
+    }
 }
 
 /// Same as the hotkey handler — show/hide the compact panel.
@@ -978,6 +1089,16 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Settings persistence — pin-state, last-update-check timestamp,
+        // future toggles. Backed by ~/Library/Application Support/wellwon/settings.json.
+        .plugin(tauri_plugin_store::Builder::default().build())
+        // Launch-at-login support. macOS LaunchAgent at
+        // ~/Library/LaunchAgents/hk.wellwon.desktop.plist; toggled on/off
+        // via #[tauri::command] set_autostart_enabled below.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![
             auth::save_desktop_token,
             auth::get_desktop_token,
@@ -986,6 +1107,11 @@ pub fn run() {
             morph_to_compact,
             set_panel_pinned,
             toggle_main_panel,
+            // Settings-page API (new in 0.1.17)
+            settings_get_app_version,
+            settings_get_autostart_enabled,
+            settings_set_autostart_enabled,
+            settings_manual_check_for_updates,
         ])
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -1072,6 +1198,16 @@ pub fn run() {
             .visible(true)
             .initialization_script(&inject)
             .build()?;
+
+            // Restore the user's pin preference from settings.json
+            // (macOS Resume saves position+size for us but it doesn't
+            // know about always-on-top — that's app-level state).
+            // We apply it AFTER build so the window initially honours
+            // the user's last choice instead of always defaulting to
+            // off.
+            if read_persisted_pin_state(app.handle()) {
+                let _ = _win.set_always_on_top(true);
+            }
 
             // Spotlight-style "summon to active Space". The macOS
             // default binds a window to whichever Space it was opened
