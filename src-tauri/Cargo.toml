@@ -1,6 +1,6 @@
 [package]
 name = "wellwon-desktop"
-version = "0.1.16"
+version = "0.1.17"
 description = "WellWon Desktop"
 authors = ["Eduard"]
 edition = "2021"
@@ -20,6 +20,11 @@ tauri-plugin-opener = "2.0"
 tauri-plugin-http = "2.0"
 tauri-plugin-updater = "2.0"
 tauri-plugin-dialog = "2.0"
+# Settings persistence (pin-state, update channel, last-check timestamp).
+# JSON file under ~/Library/Application Support/wellwon/settings.json.
+tauri-plugin-store = "2.0"
+# Launch-at-login support (macOS Login Items + Windows registry).
+tauri-plugin-autostart = "2.0"
 # Direct dep so we can use tokio::time::sleep in the updater poll loop.
 # tauri pulls tokio transitively but without the `time` feature.
 tokio = { version = "1", features = ["time"] }
