@@ -264,20 +264,31 @@ const DESKTOP_INJECT_JS: &str = r#"
     '  -webkit-user-select: text; user-select: text; cursor: auto;',
     '}',
 
-    /* Drag pill — centered in the 12px gap above the chat plate
-       (AppShell uses md:py-3 → 12px top margin around the rounded
-       work-area card). Pushed down from the very top edge so the
-       macOS resize-cursor zone (top ~4px of a decorationless
-       window) doesn't fight the grab cursor when the user is
-       aiming for the pill. */
+    /* Full-width invisible drag strip — sits in the 12px safe gap
+       above the rounded work-area card (AppShell md:py-3). User can
+       grab the window from anywhere across the top, not just a
+       100 px pill in the middle. top:4px keeps the strip clear of
+       the macOS native 0-4px resize zone on decorationless windows. */
     '#ww-desktop-drag-handle {',
-    '  position: fixed; top: 3px; left: 50%; transform: translateX(-50%);',
-    '  width: 100px; height: 4px; border-radius: 999px;',
-    '  background: rgba(255,255,255,0.20); cursor: grab;',
-    '  z-index: 2147483647; transition: background 120ms ease, height 120ms ease;',
+    '  position: fixed; top: 4px; left: 0; right: 0;',
+    '  height: 16px;',
+    '  background: transparent; cursor: grab;',
+    '  z-index: 2147483647;',
     '}',
-    '#ww-desktop-drag-handle:hover {',
-    '  background: rgba(255,255,255,0.45); height: 5px;',
+    '#ww-desktop-drag-handle:active { cursor: grabbing; }',
+    /* Small visual nub centered inside the invisible drag strip so
+       the user has a visual hint that the area is draggable. Purely
+       decorative — drag still works across the whole strip width. */
+    '#ww-desktop-drag-handle::before {',
+    '  content: ""; display: block;',
+    '  position: absolute; top: 5px; left: 50%; transform: translateX(-50%);',
+    '  width: 56px; height: 4px; border-radius: 999px;',
+    '  background: rgba(255,255,255,0.16);',
+    '  transition: background 120ms ease, width 120ms ease;',
+    '  pointer-events: none;',
+    '}',
+    '#ww-desktop-drag-handle:hover::before {',
+    '  background: rgba(255,255,255,0.38); width: 72px;',
     '}',
 
     /* controls hidden by default — JS toggles inline opacity +',

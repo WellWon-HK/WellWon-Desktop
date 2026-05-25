@@ -8,6 +8,11 @@
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
 
+	<!-- Web Speech API → macOS Speech.framework. Pairs with the
+	     NSSpeechRecognitionUsageDescription key in Info.plist. -->
+	<key>com.apple.security.personal-information.speech-recognition</key>
+	<true/>
+
 	<!-- Allows WKWebView JIT — Tauri 2 release builds need this on
 	     macOS 11+ when the hardened runtime is on. -->
 	<key>com.apple.security.cs.allow-jit</key>
