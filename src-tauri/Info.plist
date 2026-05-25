@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Microphone — voice mode in /chat needs getUserMedia to work.
+	     Without this key macOS silently denies the WKWebView's request
+	     and the permission prompt never appears, which looks to the
+	     user like "click mic, nothing happens". -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>WellWon использует микрофон для голосового режима общения с AI-ассистентом.</string>
+
+	<!-- Camera kept open as a stub for future video / face-mode work;
+	     even if we never call getUserMedia({video:true}), having the
+	     key lets us iterate without rebuilding the bundle. -->
+	<key>NSCameraUsageDescription</key>
+	<string>WellWon может использовать камеру для функций видео-ассистента.</string>
+</dict>
+</plist>

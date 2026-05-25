@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Required for getUserMedia({audio:true}) to succeed under the
+	     hardened runtime that Tauri's release bundler applies.
+	     Pair with NSMicrophoneUsageDescription in Info.plist. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+
+	<!-- Allows WKWebView JIT — Tauri 2 release builds need this on
+	     macOS 11+ when the hardened runtime is on. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+
+	<!-- Camera kept open for parity with Info.plist NSCameraUsageDescription. -->
+	<key>com.apple.security.device.camera</key>
+	<true/>
+</dict>
+</plist>

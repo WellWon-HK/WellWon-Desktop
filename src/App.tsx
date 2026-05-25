@@ -325,20 +325,28 @@ function App() {
           data-tauri-drag-region
           className="flex h-11 shrink-0 items-center gap-1 border-b border-white/5 px-3 select-none"
         >
+          {/* Tauri 2 does NOT propagate `data-tauri-drag-region` to
+              children, so each interactive child gets the attribute
+              explicitly here. Tauri distinguishes click from drag by
+              motion threshold (~5 px), so onClick still fires on a
+              quick click — but anywhere in the titlebar the user
+              can hold-and-drag to move the whole window. */}
           <button
             type="button"
+            data-tauri-drag-region
             onClick={() => setHistoryOpen((v) => !v)}
             className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-white/5 text-[13px] font-semibold text-zinc-200 transition-colors min-w-0 max-w-[60%]"
             title={historyOpen ? "Скрыть историю" : "Показать историю чатов"}
           >
             <svg
+              data-tauri-drag-region
               width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
               className={`shrink-0 transition-transform duration-200 ${historyOpen ? "rotate-180" : ""}`}
             >
               <polyline points="6 9 12 15 18 9" />
             </svg>
-            <span className="truncate">{activeChatTitle}</span>
+            <span data-tauri-drag-region className="truncate">{activeChatTitle}</span>
           </button>
 
           <div data-tauri-drag-region className="flex-1 h-full" />
@@ -350,6 +358,7 @@ function App() {
           {/* Pin — toggles always-on-top */}
           <button
             type="button"
+            data-tauri-drag-region
             onClick={(e) => { e.stopPropagation(); setPinned((v) => !v); }}
             className={
               pinned
@@ -359,6 +368,7 @@ function App() {
             title={pinned ? "Открепить — окно будет уходить за другие" : "Закрепить поверх всех окон"}
           >
             <svg
+              data-tauri-drag-region
               width="13"
               height="13"
               viewBox="0 0 24 24"
@@ -375,11 +385,12 @@ function App() {
 
           <button
             type="button"
+            data-tauri-drag-region
             onClick={(e) => { e.stopPropagation(); handleNewChat(); }}
             className="inline-flex items-center justify-center size-7 rounded-md bg-lime-400 hover:bg-lime-300 text-black transition-colors"
             title="Новый чат"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <svg data-tauri-drag-region width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
@@ -388,11 +399,13 @@ function App() {
           {/* Resize button — big, minimal. Expands to full mode. */}
           <button
             type="button"
+            data-tauri-drag-region
             onClick={(e) => { e.stopPropagation(); handleExpand(); }}
             className="inline-flex items-center justify-center size-7 rounded-md text-zinc-400 hover:bg-white/10 hover:text-white transition-colors"
             title="Развернуть до полного режима"
           >
             <svg
+              data-tauri-drag-region
               width="14"
               height="14"
               viewBox="0 0 24 24"
