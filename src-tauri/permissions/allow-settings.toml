@@ -1,0 +1,27 @@
+"$schema" = "../gen/schemas/desktop-schema.json"
+
+# App-level commands defined in `src/lib.rs` (via `#[tauri::command]` +
+# `generate_handler!`) do NOT get auto-generated permissions like core /
+# plugin commands do — Tauri 2's ACL refuses every invoke from a remote
+# webview unless we explicitly list each one here.
+#
+# `/desktop/settings` runs inside the WellWon-App Next.js bundle served
+# from `localhost:3005` / `wellwon-app-production.up.railway.app`, so it
+# falls under `capabilities/remote.json`. That file references this
+# permission identifier and the four commands listed below become
+# callable from the settings page.
+#
+# Before v0.1.22 the "Check for updates" button errored with
+# `Command settings_manual_check_for_updates not allowed by ACL` because
+# this file didn't exist. The other three commands (version label,
+# autostart probe / toggle) silently no-op'd the same way.
+
+[[permission]]
+identifier = "allow-settings"
+description = "Permits the in-app settings-page commands defined in lib.rs to be invoked from the remote-URL webview."
+commands.allow = [
+  "settings_get_app_version",
+  "settings_get_autostart_enabled",
+  "settings_set_autostart_enabled",
+  "settings_manual_check_for_updates",
+]
