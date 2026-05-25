@@ -4,19 +4,22 @@
 <dict>
 	<!-- Microphone — voice mode in /chat needs getUserMedia to work.
 	     Without this key macOS silently denies the WKWebView's request
-	     and the permission prompt never appears. -->
+	     and the permission prompt never appears.
+
+	     Note (v0.1.21+): WKWebView's `webkitSpeechRecognition` is
+	     exposed but non-functional for third-party hosts (WebKit
+	     Bugzilla #239816, #225298) — the SFSpeechRecognizer binding
+	     is gated to Safari.app. We no longer try to use the Web
+	     Speech API in the desktop build; the web layer detects the
+	     desktop UA and captures audio via MediaRecorder + POSTs it
+	     to `/api/transcribe` (router-side Whisper) instead. Only
+	     the microphone key (and the audio-input entitlement) is
+	     required. NSSpeechRecognitionUsageDescription and the
+	     `personal-information.speech-recognition` entitlement were
+	     removed in v0.1.21 because they triggered an extra unused
+	     permission prompt and never actually unblocked Web Speech. -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>WellWon использует микрофон для голосового режима общения с AI-ассистентом.</string>
-
-	<!-- Speech recognition — Web Speech API in WKWebView routes audio
-	     through macOS's on-device Speech.framework. WITHOUT this key
-	     the framework refuses recognition jobs silently, so the user
-	     grants mic access, sees their voice levels move the blob, but
-	     the SpeechRecognition.onresult callback never fires and the
-	     transcript stays empty. This was the v0.1.19 mic bug — the
-	     mic was open but no text came back. -->
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>WellWon использует распознавание речи для преобразования вашего голоса в текст.</string>
 
 	<!-- Camera kept open as a stub for future video / face-mode work. -->
 	<key>NSCameraUsageDescription</key>

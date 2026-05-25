@@ -8,11 +8,6 @@
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
 
-	<!-- Web Speech API → macOS Speech.framework. Pairs with the
-	     NSSpeechRecognitionUsageDescription key in Info.plist. -->
-	<key>com.apple.security.personal-information.speech-recognition</key>
-	<true/>
-
 	<!-- Allows WKWebView JIT — Tauri 2 release builds need this on
 	     macOS 11+ when the hardened runtime is on. -->
 	<key>com.apple.security.cs.allow-jit</key>
@@ -21,5 +16,14 @@
 	<!-- Camera kept open for parity with Info.plist NSCameraUsageDescription. -->
 	<key>com.apple.security.device.camera</key>
 	<true/>
+
+	<!-- Note (v0.1.21+): `com.apple.security.personal-information.speech-recognition`
+	     was removed. It paired with NSSpeechRecognitionUsageDescription to
+	     try to make `webkitSpeechRecognition` work, but WKWebView's binding
+	     to Apple's SFSpeechRecognizer is gated to Safari.app (WebKit Bugzilla
+	     #239816, #225298) — the entitlement was never actually exercised.
+	     Voice mode now records via MediaRecorder and POSTs to /api/transcribe
+	     (router-side Whisper), so this entitlement is unnecessary and its
+	     removal eliminates one extra unused permission prompt at first launch. -->
 </dict>
 </plist>
